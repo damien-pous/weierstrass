@@ -684,12 +684,9 @@ Qed.
 
 Lemma Weierstrass_aux1 d x y: 0 < d <= Rabs (x-y) -> 1 <= ((x-y)/d)^2.
 Proof.
-  move=>H. rewrite -Ratan.pow2_abs. apply pow_R1_Rle. 
-  rewrite Rabs_mult. apply Rmult_le_reg_l with d. tauto.
-  replace (Rabs (/d)) with (/d). 
-  field_simplify. split_Rabs; lra. lra.
-  symmetry; apply Rabs_pos_eq.
-  apply proj1, Rinv_0_lt_compat in H. lra.
+move=> Hd.
+rewrite  Rpow_mult_distr pow_inv -(Rdiv_diag (d^2)) /Rdiv -?pow_inv; try nra.
+apply Rmult_le_compat_r; split_Rabs; nra.
 Qed.
 
 Lemma Weierstrass_aux2 x: 0 <= x <= 1 -> x*(1-x) <= 1.
