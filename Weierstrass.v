@@ -8,6 +8,10 @@
 (*      (see LICENSE file for the text of the license)      *)
 
 
+(* annotated version, where I hint at places where a combined lra/lia tactic
+   could be useful (and/or a rify tactic)
+   tentative name: "lira", search for it below *)
+
 From Stdlib Require Import ssreflect.                  (* for the nice rewrite tactic *)
 From Stdlib Require Import Setoid Morphisms.           (* setoid rewriting *)
 From Stdlib Require Import Arith Psatz.                (* arithmetic and [lia/lra] tactic *)
@@ -208,29 +212,32 @@ Arguments sum: simpl never.
 (** ** injection of natural numbers into real numbers *)
 
 (** a few basic lemmas about [INR] *)
+(* LIRA: hopefully we could just get rid of these lemmas by later using lira *)
 Lemma INR0: INR O = 0. Proof. reflexivity. Qed.
 Lemma INR1: INR 1 = 1. Proof. reflexivity. Qed.
 Lemma INReq (n m: nat): n = m <-> INR n = INR m.
-Proof. split; auto using INR_eq. Qed.
+Proof. split; auto using INR_eq. Qed. (* lira ? *)
 Lemma INRle (n m: nat): (n <= m)%nat <-> INR n <= INR m.
-Proof. split; auto using INR_le, le_INR. Qed.
+Proof. split; auto using INR_le, le_INR. Qed. (* lira ? *)
 Lemma INRlt (n m: nat): (n < m)%nat <-> INR n < INR m.
-Proof. split. rewrite /Peano.lt INRle S_INR. lra. apply INR_lt. Qed.
+Proof. split. rewrite /Peano.lt INRle S_INR. lra. apply INR_lt. Qed. (* lira ? *)
 
 Lemma Rdiv0 n: 0 / n = 0.
 Proof. rewrite /Rdiv. ring. Qed.
 
 (** by defining [arith] as follows, one can use [rewrite ?arith] to simplify goals involving [INR] and basic arithmetic *)
 Definition arith :=
-  (INR0, INR1,S_INR,plus_INR,mult_INR,INReq,INRle,INRlt,
-    Cn0, Cn1, Cnn, sum0, sum1,
+  (Cn0, Cn1, Cnn, sum0, sum1,
     Nat.add_0_r, Nat.add_succ_r, Nat.sub_0_r, Nat.sub_diag,
     Rplus_0_l, Rplus_0_r,
     Rmult_0_l, Rmult_0_r, Rmult_1_l, Rmult_1_r, Rdiv0).
+(* LIRA: we might want to use something nicer than [arith_INR] below *)
+Definition arith_INR :=
+  (INR0, INR1,S_INR,plus_INR,mult_INR,INReq,INRle,INRlt, arith).
 
 (** this one cannot be automated due to the side condition, this is why we leave it out *)
 Lemma INRpred: forall n, (0<n)%nat -> INR (pred n) = INR n - 1.
-Proof. case=>[|n] H. lia. rewrite S_INR/=. lra. Qed.
+Proof. case=>[|n] H. lia. rewrite S_INR/=. lra. Qed. (* lira ? *)
 
 (* prevent reduction of [INR], for better control *)
 Arguments INR: simpl never.
@@ -239,6 +246,7 @@ Arguments INR: simpl never.
 Coercion INR: nat >-> R.
 
 (** a tactic which is convenient below to discharge proof obligations from the [field] tactic *)
+(* LIRA: hopefully this tactic could simply be replaced by [lira] *)
 Ltac neq_0 := repeat split; solve [ apply not_O_INR; lia ].
 
 (** typical example *)
@@ -256,21 +264,20 @@ Proof.
   elim=>[|n IH].
   - by rewrite !arith. 
   - rewrite sumS_last sumS_first /= !arith.
-    rewrite (Czer n (S n)). lia. 
+    rewrite (Czer n (S n)). lia.
     rewrite arith IH Rmult_plus_distr_r 2!xsum.
     rewrite sumS_last sumS_first /= !arith. 
     apply cancel_r with (x^(S n)+y^(S n)). simpl. ring_simplify.
     rewrite -sum_plus. apply sum_eq=>i Hi. 
-    rewrite !arith. 
     replace (n-i)%nat with (S (n-(S i))) by lia.
-    simpl. ring. 
+    rewrite !arith_INR/=. ring. (* lira/rify ? *)
 Qed.
 
 Corollary binomial' x n: sum (S n) (fun k => C n k * x^k * (1-x)^(n-k)) = 1.
 Proof.
   rewrite -binomial.
   replace (x+(1-x)) with 1 by ring.
-  exact: pow1.
+  exact: pow1.                  (* lira ? *)
 Qed.
 
 (* like before with [sum_first/last], the variant below is sometimes more convenient *)
@@ -293,7 +300,8 @@ Proof.
   rewrite sumS_first. rewrite !arith. 
   replace (S n - 1)%nat with n by lia.
   apply sum_eq=>i Hi.
-  rewrite Rmult_comm -mult_INR Cpion !arith. ring.
+  rewrite Rmult_comm -mult_INR Cpion.
+  rewrite !arith_INR. ring.     (* lira/rify ? *)
 Qed.
 
 (** ** polynomials, continuity *)
@@ -557,13 +565,18 @@ Qed.
 
 Lemma Cpion': forall n i, (0<n)%nat -> S i / n * C n (S i) = C (pred n) i.
 Proof.
-  (* TODO: here a mixed lia/lra tactic would help *)
   move=>[/=|n] i. lia.
+  (* TODO: here a mixed lia/lra tactic would help; Laurent Thery's tentative proof below *)
+  (*
+  rewrite pred_succ.
+  have  H := Cpion n i.
+  rify; field [H]; lra.
+   *)
   move=>_. 
   have D: INR (S n) <> 0 by neq_0.
   apply Rmult_eq_reg_r with (S n)=>//.
-  rewrite -mult_INR -Cpion 4!arith. simpl; field. 
-  move: D. by rewrite arith. 
+  rewrite -mult_INR -Cpion 4!arith_INR. simpl; field. 
+  move: D. by rewrite arith_INR. 
 Qed.
 
 (* two tactics to rewrite under sums, with lemmas involving side conditions *)
@@ -573,9 +586,9 @@ Ltac close_sum := reflexivity.
 Lemma Bx n x: (0<n)%nat -> B n (fun x => x) x = x.
 Proof.
   case:n. lia. move=>n _. unfold B, b.
-  rewrite sumS_first !arith.
+  rewrite sumS_first !arith_INR.
   open_sum k Hk.
-    rewrite -2!Rmult_assoc -S_INR Cpion' /=. lia.
+    rewrite -2!Rmult_assoc -S_INR Cpion' /=. lia. (* would be happy to get rid of S_INR, and before, arith_INR *)
     transitivity (x*(C n k * x^k * (1-x)^(n-k))). ring. 
   close_sum.
   rewrite -xsum binomial'. ring.  
@@ -586,7 +599,10 @@ Proof.
   (* we first deal with the case n=1 *)
   move=>N'. have C: (n=1 \/ 1<n)%nat by lia.
   case: C=> [->|N] {N'}; unfold B, b.
-  rewrite sumS_first sum1 Cn0 Cnn !arith. field. 
+  rewrite sumS_first sum1 Cn0 Cnn !arith.  
+  rewrite !arith_INR; field. (* lira/rify? *)
+  (* idem below, try to get rid of arith_INR... *)
+  
   (* then we use the following path:
      
       Bn(x^2,x) 
@@ -602,16 +618,16 @@ Proof.
     rewrite -2!Rmult_assoc.
     replace (_^2 * _) with (S k / n * (S k / n * C n (S k))) by ring.
     rewrite Cpion'. lia.
-    rewrite arith. replace (_/_) with (k/n + 1/n) by (field; neq_0).
+    rewrite arith_INR. replace (_/_) with (k/n + 1/n) by (field; neq_0).
     rewrite 3!Rmult_plus_distr_r. 
   close_sum.
   rewrite sum_plus.
   rewrite sum_first. lia. rewrite !arith.
   open_sum k Hk.
     transitivity (((n - 1) / n * x^2) * (S k / pred n * C (pred n) (S k)) * x^k * (1-x)^(pred (pred n)-k)).
-    rewrite !arith INRpred. lia.
+    rewrite !arith_INR INRpred. lia.
     replace (n-S(S k))%nat with (pred (pred n) - k)%nat by lia. 
-    simpl. field. rewrite !arith in N. lra. 
+    simpl. field. rewrite !arith_INR in N. lra. 
     rewrite Cpion'. lia.
     rewrite 2!Rmult_assoc -(Rmult_assoc (C _ _)).
   close_sum.
@@ -634,6 +650,7 @@ Definition nup (x: R) := Z.to_nat (up x).
 
 Lemma IPR_pos p: 0<IPR p.
 Proof.
+  (* lira ? (this time with positives...) *)
   have H: forall q, 0<IPR_2 q by elim=>[q|q|]; simpl; nra.
   destruct p; unfold IPR; try specialize (H p); lra. 
 Qed.
@@ -643,16 +660,18 @@ Proof.
   rewrite /nup.
   case: (archimed x)=>H H'.
   destruct (up x) as [|z|z]; simpl in *.
-  by rewrite arith.
-  by rewrite INR_IPR.
-  rewrite arith. unfold IZR in *. pose proof (IPR_pos z). lra. 
+  by rewrite arith_INR.             (* lira? *)
+  by rewrite INR_IPR.               (* lira with positives? *)
+  rewrite arith_INR. unfold IZR in *. pose proof (IPR_pos z). lra. (* lira? *)
 Qed.
 
 (* a few other helpers *)
 Lemma C_pos n k: (k <= n)%nat -> 0 < C n k.
 Proof.
-  move=>kn. apply Cpos, lt_INR in kn.
-  by rewrite arith in kn.
+  move=>kn. apply Cpos in kn.
+  (* lira? *)
+  apply lt_INR in kn.
+  by rewrite arith_INR in kn.
 Qed.
 
 Lemma b_pos n k x: (k <= n)%nat -> 0<=x<=1 -> 0 <= b n k x.
@@ -665,6 +684,7 @@ Qed.
 
 Lemma Ikn k n: (k<=n)%nat -> (0<n)%nat -> 0<=k/n<=1.
 Proof.
+  (* less forward reasonning with lira? *)
   move=>kn zn. pose proof (pos_INR k).
   assert(k <= n) by now apply le_INR.
   assert(0 < n) by now apply lt_0_INR.
@@ -742,7 +762,7 @@ Proof.
    apply Rdiv_ge0. lra. 
    apply Rmult_lt_0_compat=>//. nra.
   }
-  have N': (0<n)%nat by rewrite arith.
+  have N': (0<n)%nat by rewrite arith_INR. (* lira? *)
   
   (* 4. [B n f] is the desired approximation *)
   exists (B n f). split. apply is_poly_B. intros x Ix.
